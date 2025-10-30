@@ -19,7 +19,8 @@ import base64
 # ---------------------------
 # Configuration and constants
 # ---------------------------
-WORKSPACE_DIR = "/Users/anvitakallam/Documents/Speech Data"
+# Use the script directory so relative CSV paths work locally and in Streamlit Cloud
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTCOME_FILE = os.path.join(WORKSPACE_DIR, "ATL Speech - Correlation Workflow - 136 Outcome.csv")
 PROGRAM_FILE = os.path.join(WORKSPACE_DIR, "ATL Speech - Correlation Workflow - Presence of Aud Program.csv")
 BACKGROUND_IMAGE_FILE = os.path.join(WORKSPACE_DIR, "speechback.png")
