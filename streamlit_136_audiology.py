@@ -56,6 +56,16 @@ STATE_TO_USPS = {
     "Wyoming": "WY"
 }
 
+# Fix typos found in the CSV files (e.g., "Noebraska" -> "Nebraska")
+STATE_NAME_CORRECTIONS = {
+    "noebraska": "nebraska",
+    "noevada": "nevada",
+    "noew hampshire": "new hampshire",
+    "noew jersey": "new jersey",
+    "noew mexico": "new mexico",
+    "noew york": "new york",
+}
+
 
 def read_csv_safely(path: str) -> pd.DataFrame:
     if not os.path.exists(path):
@@ -139,9 +149,13 @@ def prepare_data(outcome_path: str, program_path: str) -> pd.DataFrame:
     if STANDARD_COLUMN_PROGRAM not in program_df.columns:
         raise KeyError("Program presence column not found/derivable in program data.")
 
-    # Normalize state name for robust merging (case-insensitive, trimmed)
-    outcome_df["_state_key"] = outcome_df[STANDARD_COLUMN_STATE].astype(str).str.strip().str.lower()
-    program_df["_state_key"] = program_df[STANDARD_COLUMN_STATE].astype(str).str.strip().str.lower()
+    # Normalize state name for robust merging (case-insensitive, trimmed, and fix typos)
+    def normalize_state_name(state_name: str) -> str:
+        normalized = str(state_name).strip().lower()
+        return STATE_NAME_CORRECTIONS.get(normalized, normalized)
+    
+    outcome_df["_state_key"] = outcome_df[STANDARD_COLUMN_STATE].apply(normalize_state_name)
+    program_df["_state_key"] = program_df[STANDARD_COLUMN_STATE].apply(normalize_state_name)
 
     merged = pd.merge(
         outcome_df,
@@ -155,6 +169,9 @@ def prepare_data(outcome_path: str, program_path: str) -> pd.DataFrame:
     merged = merged.drop(columns=["_state_key"])
 
     keep_cols = [STANDARD_COLUMN_STATE, STANDARD_COLUMN_PROGRAM] + list(METRIC_COLUMNS_CANONICAL.keys())
+    # Preserve Year column if it exists (for aggregation later)
+    if "Year" in merged.columns:
+        keep_cols.append("Year")
     existing = [c for c in keep_cols if c in merged.columns]
     merged = merged[existing].copy()
 
@@ -434,9 +451,19 @@ with col2:
 
 st.markdown("<div class='section-header'>U.S. Choropleth (optional)</div>", unsafe_allow_html=True)
 if (selected_metric in filtered.columns) and ("State_Code" in filtered.columns) and not filtered["State_Code"].isna().all():
-    tmp = filtered.dropna(subset=[selected_metric]).copy()
+    tmp = filtered.dropna(subset=[selected_metric, "State_Code"]).copy()
+    # Aggregate by state: take the most recent value (or average if no Year column)
+    if "Year" in tmp.columns:
+        tmp_agg = tmp.sort_values("Year", ascending=False).groupby("State_Code").first().reset_index()
+    else:
+        # If no Year column, take mean per state
+        tmp_agg = tmp.groupby("State_Code", as_index=False).agg({
+            selected_metric: 'mean',
+            STANDARD_COLUMN_STATE: 'first',
+            STANDARD_COLUMN_PROGRAM: 'first',  # Should be same for all rows of same state
+        })
     fig_map = px.choropleth(
-        tmp,
+        tmp_agg,
         locations="State_Code",
         locationmode="USA-states",
         color=selected_metric,
