@@ -529,6 +529,9 @@ if "Audiologists_per_100k" in filtered.columns and selected_metric in filtered.c
             hover_data={STANDARD_COLUMN_PROGRAM: True, selected_metric: ":.2f", "Audiologists_per_100k": ":.1f"},
         )
         
+        # Remove the program presence legend items
+        fig_scatter.update_traces(showlegend=False, selector=dict(type='scatter', mode='markers'))
+        
         # Add single OLS trendline for all data (not separate by program)
         if tmp.shape[0] >= 3:
             x_vals = tmp["Audiologists_per_100k"].values
@@ -548,7 +551,7 @@ if "Audiologists_per_100k" in filtered.columns and selected_metric in filtered.c
                     x=x_trend,
                     y=y_trend,
                     mode='lines',
-                    name='OLS Trendline (All Data)',
+                    name='OLS Trendline',
                     line=dict(color='rgba(68, 1, 84, 0.6)', width=2, dash='dash'),
                     showlegend=True,
                 )
