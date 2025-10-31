@@ -468,7 +468,7 @@ with col2:
     else:
         st.info("Selected metric not found in data.")
 
-st.markdown("<div class='section-header'>U.S. Choropleth (optional)</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-header'>U.S. Choropleth</div>", unsafe_allow_html=True)
 if (selected_metric in filtered.columns) and ("State_Code" in filtered.columns) and not filtered["State_Code"].isna().all():
     tmp = filtered.dropna(subset=[selected_metric, "State_Code"]).copy()
     # Aggregate by state: take the most recent value (or average if no Year column)
@@ -481,12 +481,34 @@ if (selected_metric in filtered.columns) and ("State_Code" in filtered.columns) 
             STANDARD_COLUMN_STATE: 'first',
             STANDARD_COLUMN_PROGRAM: 'first',  # Should be same for all rows of same state
         })
+    
+    # Calculate global min/max across all metrics for consistent color scale
+    global_min = np.inf
+    global_max = -np.inf
+    for metric in METRIC_COLUMNS_CANONICAL.keys():
+        if metric in filtered.columns:
+            metric_data = filtered.dropna(subset=[metric, "State_Code"])
+            if "Year" in metric_data.columns:
+                metric_agg = metric_data.sort_values("Year", ascending=False).groupby("State_Code").first()[metric]
+            else:
+                metric_agg = metric_data.groupby("State_Code")[metric].mean()
+            if len(metric_agg) > 0:
+                global_min = min(global_min, float(metric_agg.min()))
+                global_max = max(global_max, float(metric_agg.max()))
+    
+    # Use consistent color range across all metrics
+    if global_min < np.inf and global_max > -np.inf:
+        color_range = [global_min, global_max]
+    else:
+        color_range = None
+    
     fig_map = px.choropleth(
         tmp_agg,
         locations="State_Code",
         locationmode="USA-states",
         color=selected_metric,
         color_continuous_scale=px.colors.sequential.Viridis[::-1],
+        range_color=color_range,
         scope="usa",
         hover_name=STANDARD_COLUMN_STATE,
         hover_data={STANDARD_COLUMN_PROGRAM: True, selected_metric: ":.2f"},
