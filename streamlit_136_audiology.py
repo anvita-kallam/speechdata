@@ -499,47 +499,71 @@ if (selected_metric in filtered.columns) and ("State_Code" in filtered.columns) 
 else:
     st.info("Choropleth unavailable: missing state codes or metric.")
 
-# Scattergrams: Outcome vs Audiologists per 100k
-if "Audiologists_per_100k" in filtered.columns:
-    st.markdown("<div class='section-header'>Outcome Metrics vs Audiologists per 100k Population</div>", unsafe_allow_html=True)
+# Scattergram: Selected Outcome vs Audiologists per 100k
+if "Audiologists_per_100k" in filtered.columns and selected_metric in filtered.columns:
+    st.markdown("<div class='section-header'>Outcome vs Audiologists per 100k Population</div>", unsafe_allow_html=True)
     
-    scatter_cols = st.columns(3)
-    for idx, metric in enumerate(METRIC_COLUMNS_CANONICAL.keys()):
-        if metric in filtered.columns:
-            with scatter_cols[idx % 3]:
-                tmp = filtered.dropna(subset=[metric, "Audiologists_per_100k"]).copy()
-                if not tmp.empty:
-                    # Aggregate by state if multiple years exist (take most recent year)
-                    if "Year" in tmp.columns:
-                        tmp = tmp.sort_values("Year", ascending=False).groupby(STANDARD_COLUMN_STATE).agg({
-                            metric: 'first',
-                            "Audiologists_per_100k": 'first',
-                            STANDARD_COLUMN_PROGRAM: 'first',
-                        }).reset_index()
-                    else:
-                        tmp = tmp.groupby(STANDARD_COLUMN_STATE, as_index=False).agg({
-                            metric: 'mean',
-                            "Audiologists_per_100k": 'first',
-                            STANDARD_COLUMN_PROGRAM: 'first',
-                        })
-                    
-                    fig_scatter = px.scatter(
-                        tmp,
-                        x="Audiologists_per_100k",
-                        y=metric,
-                        color=tmp[STANDARD_COLUMN_PROGRAM].map({True: "With Program", False: "Without Program"}),
-                        color_discrete_sequence=px.colors.sequential.Viridis,
-                        hover_name=STANDARD_COLUMN_STATE,
-                        hover_data={STANDARD_COLUMN_PROGRAM: True, metric: ":.2f", "Audiologists_per_100k": ":.1f"},
-                        trendline="ols" if tmp.shape[0] >= 3 else None,
-                    )
-                    fig_scatter.update_layout(
-                        margin=dict(t=10, b=20, l=10, r=10),
-                        xaxis_title="Audiologists per 100k Population",
-                        yaxis_title=f"{metric} (%)",
-                    )
-                    st.plotly_chart(fig_scatter, width='stretch')
-else:
+    tmp = filtered.dropna(subset=[selected_metric, "Audiologists_per_100k"]).copy()
+    if not tmp.empty:
+        # Aggregate by state if multiple years exist (take most recent year)
+        if "Year" in tmp.columns:
+            tmp = tmp.sort_values("Year", ascending=False).groupby(STANDARD_COLUMN_STATE).agg({
+                selected_metric: 'first',
+                "Audiologists_per_100k": 'first',
+                STANDARD_COLUMN_PROGRAM: 'first',
+            }).reset_index()
+        else:
+            tmp = tmp.groupby(STANDARD_COLUMN_STATE, as_index=False).agg({
+                selected_metric: 'mean',
+                "Audiologists_per_100k": 'first',
+                STANDARD_COLUMN_PROGRAM: 'first',
+            })
+        
+        fig_scatter = px.scatter(
+            tmp,
+            x="Audiologists_per_100k",
+            y=selected_metric,
+            color=tmp[STANDARD_COLUMN_PROGRAM].map({True: "With Program", False: "Without Program"}),
+            color_discrete_sequence=px.colors.sequential.Viridis,
+            hover_name=STANDARD_COLUMN_STATE,
+            hover_data={STANDARD_COLUMN_PROGRAM: True, selected_metric: ":.2f", "Audiologists_per_100k": ":.1f"},
+        )
+        
+        # Add single OLS trendline for all data (not separate by program)
+        if tmp.shape[0] >= 3:
+            x_vals = tmp["Audiologists_per_100k"].values
+            y_vals = tmp[selected_metric].values
+            # Simple linear regression
+            x_mean = np.mean(x_vals)
+            y_mean = np.mean(y_vals)
+            numerator = np.sum((x_vals - x_mean) * (y_vals - y_mean))
+            denominator = np.sum((x_vals - x_mean) ** 2)
+            if denominator != 0:
+                slope = numerator / denominator
+                intercept = y_mean - slope * x_mean
+                # Generate trendline points
+                x_trend = np.linspace(x_vals.min(), x_vals.max(), 100)
+                y_trend = intercept + slope * x_trend
+                fig_scatter.add_scatter(
+                    x=x_trend,
+                    y=y_trend,
+                    mode='lines',
+                    name='OLS Trendline (All Data)',
+                    line=dict(color='rgba(68, 1, 84, 0.6)', width=2, dash='dash'),
+                    showlegend=True,
+                )
+        
+        fig_scatter.update_layout(
+            margin=dict(t=10, b=20, l=10, r=10),
+            xaxis_title="Audiologists per 100k Population",
+            yaxis_title=f"{selected_metric} (%)",
+        )
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.plotly_chart(fig_scatter, width='stretch')
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info(f"No data available for {selected_metric} vs Audiologists per 100k.")
+elif "Audiologists_per_100k" not in filtered.columns:
     st.info("Audiologists per 100k data not available.")
 
 
