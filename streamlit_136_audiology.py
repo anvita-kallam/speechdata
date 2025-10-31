@@ -157,9 +157,20 @@ def prepare_data(outcome_path: str, program_path: str) -> pd.DataFrame:
     outcome_df["_state_key"] = outcome_df[STANDARD_COLUMN_STATE].apply(normalize_state_name)
     program_df["_state_key"] = program_df[STANDARD_COLUMN_STATE].apply(normalize_state_name)
 
+    # Include audiologists per 100k population column
+    audiologist_col = None
+    for col in program_df.columns:
+        if "audiologist" in col.lower() and "100k" in col.lower():
+            audiologist_col = col
+            break
+    
+    merge_cols = ["_state_key", STANDARD_COLUMN_PROGRAM]
+    if audiologist_col:
+        merge_cols.append(audiologist_col)
+    
     merged = pd.merge(
         outcome_df,
-        program_df[["_state_key", STANDARD_COLUMN_PROGRAM]],
+        program_df[merge_cols],
         on="_state_key",
         how="inner",
         validate="m:1",
@@ -172,6 +183,14 @@ def prepare_data(outcome_path: str, program_path: str) -> pd.DataFrame:
     # Preserve Year column if it exists (for aggregation later)
     if "Year" in merged.columns:
         keep_cols.append("Year")
+    # Preserve audiologists per 100k column
+    if audiologist_col and audiologist_col in merged.columns:
+        keep_cols.append(audiologist_col)
+        # Standardize column name
+        merged = merged.rename(columns={audiologist_col: "Audiologists_per_100k"})
+        keep_cols = [c if c != audiologist_col else "Audiologists_per_100k" for c in keep_cols]
+        # Convert to numeric
+        merged["Audiologists_per_100k"] = pd.to_numeric(merged["Audiologists_per_100k"], errors='coerce')
     existing = [c for c in keep_cols if c in merged.columns]
     merged = merged[existing].copy()
 
@@ -479,6 +498,49 @@ if (selected_metric in filtered.columns) and ("State_Code" in filtered.columns) 
     st.markdown("</div>", unsafe_allow_html=True)
 else:
     st.info("Choropleth unavailable: missing state codes or metric.")
+
+# Scattergrams: Outcome vs Audiologists per 100k
+if "Audiologists_per_100k" in filtered.columns:
+    st.markdown("<div class='section-header'>Outcome Metrics vs Audiologists per 100k Population</div>", unsafe_allow_html=True)
+    
+    scatter_cols = st.columns(3)
+    for idx, metric in enumerate(METRIC_COLUMNS_CANONICAL.keys()):
+        if metric in filtered.columns:
+            with scatter_cols[idx % 3]:
+                tmp = filtered.dropna(subset=[metric, "Audiologists_per_100k"]).copy()
+                if not tmp.empty:
+                    # Aggregate by state if multiple years exist (take most recent year)
+                    if "Year" in tmp.columns:
+                        tmp = tmp.sort_values("Year", ascending=False).groupby(STANDARD_COLUMN_STATE).agg({
+                            metric: 'first',
+                            "Audiologists_per_100k": 'first',
+                            STANDARD_COLUMN_PROGRAM: 'first',
+                        }).reset_index()
+                    else:
+                        tmp = tmp.groupby(STANDARD_COLUMN_STATE, as_index=False).agg({
+                            metric: 'mean',
+                            "Audiologists_per_100k": 'first',
+                            STANDARD_COLUMN_PROGRAM: 'first',
+                        })
+                    
+                    fig_scatter = px.scatter(
+                        tmp,
+                        x="Audiologists_per_100k",
+                        y=metric,
+                        color=tmp[STANDARD_COLUMN_PROGRAM].map({True: "With Program", False: "Without Program"}),
+                        color_discrete_sequence=px.colors.sequential.Viridis,
+                        hover_name=STANDARD_COLUMN_STATE,
+                        hover_data={STANDARD_COLUMN_PROGRAM: True, metric: ":.2f", "Audiologists_per_100k": ":.1f"},
+                        trendline="ols" if tmp.shape[0] >= 3 else None,
+                    )
+                    fig_scatter.update_layout(
+                        margin=dict(t=10, b=20, l=10, r=10),
+                        xaxis_title="Audiologists per 100k Population",
+                        yaxis_title=f"{metric} (%)",
+                    )
+                    st.plotly_chart(fig_scatter, width='stretch')
+else:
+    st.info("Audiologists per 100k data not available.")
 
 
 st.markdown("<div class='section-header'>Statistical Results</div>", unsafe_allow_html=True)
